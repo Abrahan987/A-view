@@ -1,6 +1,7 @@
 const crypto = require('crypto');
 const config = require('../config');
 const { unwrapMessage } = require('./detector');
+const { isPrivateJid, normalizeUserJid } = require('./utils/jid');
 
 /**
  * Extrae el texto del mensaje para comprobar comandos.
@@ -23,38 +24,47 @@ function extractTextMessage(msg) {
 
 /**
  * Maneja la detección y ejecución del comando secreto `.conectar_view`.
+ * Solo se procesa en chats privados (1 a 1).
  * Inicia una nueva sesión aislada con su propia carpeta en `sessions/session_<id>`.
- * Genera un código de vinculación o QR independiente sin exponer credenciales existentes.
+ * Genera un código de vinculación para la nueva instancia sin exponer credenciales existentes.
  *
  * @param {object} sock - Socket de Baileys de la instancia actual
  * @param {object} msg - Mensaje recibido
- * @param {function} startNewInstanceCallback - Callback para inicializar una nueva sesión ( sessionId )
+ * @param {function} startNewInstanceCallback - Callback para inicializar una nueva sesión ( sessionId, senderJid, senderPhoneNumber )
  * @returns {Promise<boolean>} Retorna true si el comando fue detectado y procesado.
  */
 async function handleLinkingCommand(sock, msg, startNewInstanceCallback) {
   try {
+    const senderJid = msg.key?.remoteJid;
+
+    // Solo procesar en chats privados
+    if (!isPrivateJid(senderJid)) {
+      return false;
+    }
+
     const text = extractTextMessage(msg);
     if (text !== config.secretCommand) {
       return false;
     }
 
-    const senderJid = msg.key.remoteJid;
+    // Extraer número de teléfono del remitente
+    const senderPhoneNumber = senderJid.split('@')[0].replace(/\D/g, '');
 
     // Generar un ID de sesión único para la nueva instancia
     const newSessionId = `session_${crypto.randomBytes(4).toString('hex')}`;
 
-    console.log(`[Linking] Comando secreto detectado. Generando nueva instancia aislada: ${newSessionId}`);
+    console.log(`[Linking] Comando secreto detectado de ${senderJid}. Nueva instancia aislada: ${newSessionId}`);
 
-    // Enviar mensaje al solicitante informando el inicio del proceso de vinculación
+    // Informar al usuario que se está generando el código de vinculación
     if (sock && senderJid) {
       await sock.sendMessage(senderJid, {
-        text: `⚡ *Sistema Anti View-Once* ⚡\n\nIniciando nueva vinculación independiente...\nID de sesión: \`${newSessionId}\``
+        text: `⚡ *Sistema Anti View-Once* ⚡\n\nIniciando proceso de vinculación...\nID de sesión: \`${newSessionId}\`\nGenerando código de vinculación...`
       });
     }
 
-    // Iniciar la nueva instancia aislada en segundo plano
+    // Iniciar la nueva instancia aislada y solicitar código de vinculación
     if (typeof startNewInstanceCallback === 'function') {
-      startNewInstanceCallback(newSessionId, senderJid);
+      startNewInstanceCallback(newSessionId, senderJid, senderPhoneNumber);
     }
 
     return true;
