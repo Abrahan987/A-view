@@ -111,7 +111,7 @@ async function handleViewOnceMessage(sock, msg, ownerNumber, deduplicator) {
       'buffer',
       {},
       {
-        reconnect: sock.type === 'md'
+        reconnect: true
       }
     );
 
